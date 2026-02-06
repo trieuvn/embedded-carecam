@@ -1,0 +1,26 @@
+# Tỷ Tỷ Chatbot Dependencies
+# Install with: pip install -r requirements.txt
+
+# AI Service
+google-generativeai>=0.3.0
+
+# Speech Recognition
+SpeechRecognition>=3.10.0
+vosk>=0.3.45
+
+# Text-to-Speech
+edge-tts>=6.1.0
+
+# Audio Processing
+pyaudio>=0.2.14
+numpy>=1.24.0
+pydub>=0.25.1
+
+# RTSP Stream (optional - for camera audio)
+ffmpeg-python>=0.2.0
+
+# Async support
+asyncio-compat>=0.1.0
+
+# Utilities
+python-dotenv>=1.0.0
