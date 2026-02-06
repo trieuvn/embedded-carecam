@@ -20,11 +20,11 @@ if cable_input_idx is None:
     exit(1)
 
 # Generate TTS
-print("\n🔊 Generating TTS: 'Xin chào! Tỷ Tỷ đã kết nối với camera.'")
+print("\n🔊 Generating TTS: 'Xin chào! Tớ đã kết nối với camera.'")
 import edge_tts
 
 async def generate_tts():
-    communicate = edge_tts.Communicate("Xin chào! Tỷ Tỷ đã kết nối với camera.", "vi-VN-HoaiMyNeural")
+    communicate = edge_tts.Communicate("Xin chào! Tớ đã kết nối với camera.", "vi-VN-HoaiMyNeural")
     await communicate.save("test_greeting.mp3")
 
 asyncio.run(generate_tts())

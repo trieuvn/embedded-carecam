@@ -35,6 +35,7 @@ from modules.ai_service import get_ai_service
 from modules.text_to_speech import get_tts
 from modules.speech_to_text import get_stt
 from modules.wake_word import get_wake_detector
+from modules.carecam_controller import get_controller as get_carecam_controller
 from config import config
 
 
@@ -160,6 +161,7 @@ class TyTyFullAutoBot:
         print()
         
         self.pipeline = None
+        self.carecam_ctrl = None  # CareCam UI controller
         self.ai = None
         self.tts = None
         self.stt = None
@@ -207,6 +209,18 @@ class TyTyFullAutoBot:
             print("✅ Sẵn sàng! Nói 'Tỷ Tỷ' vào camera để bắt đầu")
             print("=" * 60)
             
+            # Initialize CareCam controller for auto-mic
+            try:
+                self.carecam_ctrl = get_carecam_controller()
+                if self.carecam_ctrl.find_window():
+                    print("\n🎮 CareCam app detected - Chế độ TỰ ĐỘNG MIC enabled!")
+                else:
+                    print("\n⚠️ Không tìm thấy app CareCam - bạn cần giữ mic thủ công")
+                    self.carecam_ctrl = None
+            except Exception as e:
+                print(f"⚠️ Không thể khởi tạo CareCam controller: {e}")
+                self.carecam_ctrl = None
+            
             # Test connection - phát "xin chào" qua camera
             if self.pipeline.has_virtual_cable():
                 self._say_to_camera("Xin chào! Tỷ Tỷ đã kết nối với camera.")
@@ -220,7 +234,7 @@ class TyTyFullAutoBot:
             return False
     
     def _say_to_camera(self, text: str):
-        """Phát text qua camera speaker (qua Virtual Cable)"""
+        """Phát text qua camera speaker (qua Virtual Cable + auto-mic)"""
         try:
             # Generate TTS to file
             import asyncio
@@ -240,11 +254,24 @@ class TyTyFullAutoBot:
             audio = AudioSegment.from_mp3(mp3_file)
             audio.export(temp_file.name, format="wav")
             
+            # Calculate audio duration
+            audio_duration = len(audio) / 1000.0  # milliseconds to seconds
+            
+            # Auto-hold mic button if CareCam controller available
+            if self.carecam_ctrl:
+                print(f"🎤 Auto-hold mic for {audio_duration:.1f}s...")
+                self.carecam_ctrl.hold_mic_async(duration=audio_duration + 0.5)
+                time.sleep(0.3)  # Wait for mic to be held
+            
             # Play to Virtual Cable
             self.pipeline.play_to_virtual_cable(temp_file.name)
             
             # Also play to local speaker so user can hear
             self.pipeline.play_to_speakers(temp_file.name)
+            
+            # Wait for mic to be released
+            if self.carecam_ctrl and self.carecam_ctrl._hold_thread:
+                self.carecam_ctrl._hold_thread.join()
             
             # Cleanup
             os.remove(mp3_file)
@@ -252,6 +279,8 @@ class TyTyFullAutoBot:
             
         except Exception as e:
             print(f"❌ Lỗi phát audio: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _say_local(self, text: str):
         """Phát text qua loa PC (không qua camera)"""
