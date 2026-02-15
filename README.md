@@ -1,8 +1,7 @@
-# Tỷ Tỷ - CareCam Voice Chatbot
+# CareCam Voice Chatbot
 
 ## Giới thiệu
 Chatbot AI điều khiển bằng giọng nói, tích hợp với camera CareCam.
-Nói "Tỷ Tỷ" để kích hoạt và đặt câu hỏi.
 
 ## Cài đặt
 
@@ -24,14 +23,6 @@ $env:GOOGLE_API_KEY = "your-api-key-here"
 ```bash
 python main.py
 ```
-
-## Sử dụng
-
-| Lệnh | Kết quả |
-|------|---------|
-| "Tỷ Tỷ 1+1 bằng mấy?" | AI trả lời toán |
-| "Tỷ Tỷ ơi thời tiết thế nào?" | AI trả lời thời tiết |
-| "Tỷ Tỷ" (chờ) + "câu hỏi" | Hai bước kích hoạt |
 
 ## Cấu hình (config.py)
 
