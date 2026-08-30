@@ -5,6 +5,9 @@ Chức năng: Tự động click và giữ nút mic khi phát audio
 
 import time
 import threading
+import json
+import os
+import logging
 from typing import Optional, Tuple
 
 try:
@@ -13,6 +16,12 @@ try:
 except ImportError:
     print("Cần cài đặt: pip install pyautogui pygetwindow pillow")
     raise
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+# Configuration file path
+POSITION_CONFIG_FILE = "position_config.json"
 
 
 class CareCamController:
@@ -26,15 +35,57 @@ class CareCamController:
     MIC_BUTTON_RELATIVE_X = 0.50  # 50% từ trái
     MIC_BUTTON_RELATIVE_Y = 0.94  # 94% từ trên (gần dưới cùng)
     
+    # Vị trí tương đối của nút loa (speaker)
+    SPEAKER_BUTTON_RELATIVE_X = 0.42  # 42% từ trái
+    SPEAKER_BUTTON_RELATIVE_Y = 0.94  # 94% từ trên (gần dưới cùng)
+    
+    # Retry configuration
+    MAX_RETRIES = 3
+    RETRY_DELAY = 0.5  # seconds
+    
     def __init__(self):
         self.window = None
         self.mic_button_pos = None
+        self.speaker_button_pos = None
         self._holding_mic = False
         self._hold_thread = None
+        
+        # Load position configuration from file
+        self._load_position_config()
         
         # Tắt fail-safe của pyautogui (di chuột góc màn hình sẽ không dừng)
         pyautogui.FAILSAFE = False
         pyautogui.PAUSE = 0.1
+    
+    def _load_position_config(self):
+        """
+        Load button positions from position_config.json
+        Falls back to calculated relative positions if file doesn't exist
+        """
+        if os.path.exists(POSITION_CONFIG_FILE):
+            try:
+                with open(POSITION_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.mic_button_pos = (config['mic_button_x'], config['mic_button_y'])
+                    self.speaker_button_pos = (config['speaker_button_x'], config['speaker_button_y'])
+                    logger.info(f"✅ Loaded position config from {POSITION_CONFIG_FILE}")
+                    logger.info(f"   Mic button: {self.mic_button_pos}")
+                    logger.info(f"   Speaker button: {self.speaker_button_pos}")
+                    print(f"✅ Loaded position config from {POSITION_CONFIG_FILE}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load position config: {e}")
+                logger.info("Falling back to calculated relative positions")
+                print(f"⚠️ Failed to load position config: {e}")
+                print("Using calculated relative positions")
+                self.mic_button_pos = None
+                self.speaker_button_pos = None
+        else:
+            logger.info(f"ℹ️ Position config file not found: {POSITION_CONFIG_FILE}")
+            logger.info("Using calculated relative positions")
+            print(f"ℹ️ Position config file not found")
+            print("Using calculated relative positions")
+            self.mic_button_pos = None
+            self.speaker_button_pos = None
     
     def find_window(self) -> bool:
         """Tìm cửa sổ app CareCam"""
@@ -52,7 +103,16 @@ class CareCamController:
         return False
     
     def _calculate_mic_button_position(self) -> Optional[Tuple[int, int]]:
-        """Tính vị trí nút mic dựa trên vị trí cửa sổ"""
+        """
+        Get mic button position.
+        Uses loaded coordinates from position_config.json if available,
+        falls back to calculated relative position otherwise.
+        """
+        # Use loaded position if available
+        if self.mic_button_pos is not None:
+            return self.mic_button_pos
+        
+        # Fall back to calculated relative position
         if not self.window:
             return None
         
@@ -64,6 +124,31 @@ class CareCamController:
         
         x = self.window.left + int(self.window.width * self.MIC_BUTTON_RELATIVE_X)
         y = self.window.top + int(self.window.height * self.MIC_BUTTON_RELATIVE_Y)
+        
+        return (x, y)
+    
+    def _calculate_speaker_button_position(self) -> Optional[Tuple[int, int]]:
+        """
+        Get speaker button position.
+        Uses loaded coordinates from position_config.json if available,
+        falls back to calculated relative position otherwise.
+        """
+        # Use loaded position if available
+        if self.speaker_button_pos is not None:
+            return self.speaker_button_pos
+        
+        # Fall back to calculated relative position
+        if not self.window:
+            return None
+        
+        # Refresh window info
+        try:
+            self.window = gw.getWindowsWithTitle(self.window.title)[0]
+        except:
+            return None
+        
+        x = self.window.left + int(self.window.width * self.SPEAKER_BUTTON_RELATIVE_X)
+        y = self.window.top + int(self.window.height * self.SPEAKER_BUTTON_RELATIVE_Y)
         
         return (x, y)
     
@@ -130,16 +215,89 @@ class CareCamController:
             self._holding_mic = False
             print("🔇 Thả nút mic")
     
-    def click_mic_button(self):
-        """Click vào nút mic (không giữ)"""
+    def click_mic_button(self, retries: int = MAX_RETRIES):
+        """
+        Click vào nút mic (không giữ)
+        Implements retry logic with up to MAX_RETRIES attempts
+        Logs each button click and state transition
+        
+        Args:
+            retries: Number of retry attempts (default: MAX_RETRIES)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
         if not self.window:
             if not self.find_window():
-                return
+                logger.error("❌ Cannot click mic button - window not found")
+                return False
         
         pos = self._calculate_mic_button_position()
-        if pos:
-            pyautogui.click(pos[0], pos[1])
-            print(f"🎤 Click nút mic tại ({pos[0]}, {pos[1]})")
+        if not pos:
+            logger.error("❌ Cannot calculate mic button position")
+            return False
+        
+        attempt = 0
+        while attempt < retries:
+            try:
+                logger.info(f"🎤 Clicking mic button at ({pos[0]}, {pos[1]}) - Attempt {attempt + 1}/{retries}")
+                pyautogui.click(pos[0], pos[1])
+                print(f"🎤 Click nút mic tại ({pos[0]}, {pos[1]}) - Attempt {attempt + 1}")
+                logger.info("✅ Mic button clicked successfully")
+                return True
+            except Exception as e:
+                attempt += 1
+                logger.warning(f"⚠️ Mic button click failed (attempt {attempt}/{retries}): {e}")
+                if attempt < retries:
+                    logger.info(f"Retrying in {self.RETRY_DELAY} seconds...")
+                    time.sleep(self.RETRY_DELAY)
+                else:
+                    logger.error(f"❌ Mic button click failed after {retries} attempts")
+                    return False
+        
+        return False
+    
+    def click_speaker_button(self, retries: int = MAX_RETRIES):
+        """
+        Click vào nút loa/speaker
+        Implements retry logic with up to MAX_RETRIES attempts
+        Logs each button click and state transition
+        
+        Args:
+            retries: Number of retry attempts (default: MAX_RETRIES)
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.window:
+            if not self.find_window():
+                logger.error("❌ Cannot click speaker button - window not found")
+                return False
+        
+        pos = self._calculate_speaker_button_position()
+        if not pos:
+            logger.error("❌ Cannot calculate speaker button position")
+            return False
+        
+        attempt = 0
+        while attempt < retries:
+            try:
+                logger.info(f"🔊 Clicking speaker button at ({pos[0]}, {pos[1]}) - Attempt {attempt + 1}/{retries}")
+                pyautogui.click(pos[0], pos[1])
+                print(f"🔊 Click nút speaker tại ({pos[0]}, {pos[1]}) - Attempt {attempt + 1}")
+                logger.info("✅ Speaker button clicked successfully")
+                return True
+            except Exception as e:
+                attempt += 1
+                logger.warning(f"⚠️ Speaker button click failed (attempt {attempt}/{retries}): {e}")
+                if attempt < retries:
+                    logger.info(f"Retrying in {self.RETRY_DELAY} seconds...")
+                    time.sleep(self.RETRY_DELAY)
+                else:
+                    logger.error(f"❌ Speaker button click failed after {retries} attempts")
+                    return False
+        
+        return False
     
     def calibrate_mic_button(self):
         """

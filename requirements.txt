@@ -3,6 +3,7 @@
 
 # AI Service
 google-generativeai>=0.3.0
+ollama>=0.1.0
 
 # Speech Recognition
 SpeechRecognition>=3.10.0
@@ -16,11 +17,22 @@ pyaudio>=0.2.14
 numpy>=1.24.0
 pydub>=0.25.1
 
+# Voice Activity Detection (VAD)
+webrtcvad>=2.0.10
+
+# Wake Word Detection
+pvporcupine>=3.0.0
+
 # RTSP Stream (optional - for camera audio)
 ffmpeg-python>=0.2.0
 
 # Async support
 asyncio-compat>=0.1.0
+
+# UI Automation
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
+pillow>=10.0.0
 
 # Utilities
 python-dotenv>=1.0.0

@@ -209,21 +209,28 @@ class TyTyFullAutoBot:
             print("✅ Sẵn sàng! Nói 'Tỷ Tỷ' vào camera để bắt đầu")
             print("=" * 60)
             
-            # Initialize CareCam controller for auto-mic
+            # Initialize CareCam controller for auto-mic/speaker control
             try:
                 self.carecam_ctrl = get_carecam_controller()
                 if self.carecam_ctrl.find_window():
-                    print("\n🎮 CareCam app detected - Chế độ TỰ ĐỘNG MIC enabled!")
+                    print("\n🎮 CareCam app detected - Chế độ TỰ ĐỘNG MIC/SPEAKER enabled!")
+                    
+                    # QUAN TRỌNG: Mặc định BẬT LOA để nghe người từ camera nói
+                    print("🔊 Đang bật loa để nghe người từ camera...")
+                    if self.carecam_ctrl.click_speaker_button():
+                        print("✅ Loa đã bật (mic tự động tắt do hardware constraint)")
+                        time.sleep(1.0)  # Đợi 1 giây để loa kích hoạt hoàn toàn
+                    else:
+                        print("⚠️ Không thể bật loa, vui lòng bật thủ công")
                 else:
-                    print("\n⚠️ Không tìm thấy app CareCam - bạn cần giữ mic thủ công")
+                    print("\n⚠️ Không tìm thấy app CareCam - bạn cần điều khiển mic/speaker thủ công")
                     self.carecam_ctrl = None
             except Exception as e:
                 print(f"⚠️ Không thể khởi tạo CareCam controller: {e}")
                 self.carecam_ctrl = None
             
-            # Test connection - phát "xin chào" qua camera
-            if self.pipeline.has_virtual_cable():
-                self._say_to_camera("Xin chào! Tỷ Tỷ đã kết nối với camera.")
+            # Chào mừng qua loa PC (không phát qua camera lúc khởi động)
+            print("\n👋 Tỷ Tỷ đã sẵn sàng!")
             
             return True
             
@@ -234,7 +241,13 @@ class TyTyFullAutoBot:
             return False
     
     def _say_to_camera(self, text: str):
-        """Phát text qua camera speaker (qua Virtual Cable + auto-mic)"""
+        """
+        Phát text qua camera speaker (qua Virtual Cable + auto-mic)
+        
+        QUAN TRỌNG: 
+        - Trước khi nói: BẬT MIC (loa tự động tắt do hardware constraint)
+        - Sau khi nói xong: BẬT LOA (mic tự động tắt) để tiếp tục nghe người dùng
+        """
         try:
             # Generate TTS to file
             import asyncio
@@ -257,21 +270,29 @@ class TyTyFullAutoBot:
             # Calculate audio duration
             audio_duration = len(audio) / 1000.0  # milliseconds to seconds
             
-            # Auto-hold mic button if CareCam controller available
+            # BƯỚC 1: BẬT MIC (loa tự động tắt) để Tỷ Tỷ nói
             if self.carecam_ctrl:
-                print(f"🎤 Auto-hold mic for {audio_duration:.1f}s...")
-                self.carecam_ctrl.hold_mic_async(duration=audio_duration + 0.5)
-                time.sleep(0.3)  # Wait for mic to be held
+                print(f"🎤 Bật MIC để Tỷ Tỷ nói (loa tự động tắt)...")
+                if not self.carecam_ctrl.click_mic_button():
+                    print("⚠️ Không thể bật mic, vui lòng bật thủ công")
+                time.sleep(1.0)  # Đợi 1 giây để mic kích hoạt hoàn toàn (tăng từ 0.3s)
             
-            # Play to Virtual Cable
+            # BƯỚC 2: Phát audio qua Virtual Cable (vào camera)
+            print(f"🔊 Đang nói qua camera ({audio_duration:.1f}s)...")
             self.pipeline.play_to_virtual_cable(temp_file.name)
             
             # Also play to local speaker so user can hear
             self.pipeline.play_to_speakers(temp_file.name)
             
-            # Wait for mic to be released
-            if self.carecam_ctrl and self.carecam_ctrl._hold_thread:
-                self.carecam_ctrl._hold_thread.join()
+            # BƯỚC 3: Đợi audio phát xong
+            time.sleep(audio_duration + 0.5)  # Thêm 0.5s buffer (tăng từ 0.2s)
+            
+            # BƯỚC 4: BẬT LOA (mic tự động tắt) để tiếp tục nghe người dùng
+            if self.carecam_ctrl:
+                print("🔊 Bật LOA để tiếp tục nghe người dùng (mic tự động tắt)...")
+                if not self.carecam_ctrl.click_speaker_button():
+                    print("⚠️ Không thể bật loa, vui lòng bật thủ công")
+                time.sleep(1.0)  # Đợi 1 giây để loa kích hoạt hoàn toàn (tăng từ 0.3s)
             
             # Cleanup
             os.remove(mp3_file)
@@ -281,6 +302,11 @@ class TyTyFullAutoBot:
             print(f"❌ Lỗi phát audio: {e}")
             import traceback
             traceback.print_exc()
+            
+            # Fallback: đảm bảo loa được bật lại
+            if self.carecam_ctrl:
+                print("🔄 Khôi phục: bật lại loa...")
+                self.carecam_ctrl.click_speaker_button()
     
     def _say_local(self, text: str):
         """Phát text qua loa PC (không qua camera)"""
@@ -294,17 +320,31 @@ class TyTyFullAutoBot:
         return response
     
     def listen_loop(self):
-        """Main loop lắng nghe và phản hồi"""
+        """
+        Main loop lắng nghe và phản hồi
+        
+        LOGIC MIC/SPEAKER (Hardware Constraint - bật cái này thì cái kia tự động tắt):
+        1. MẶC ĐỊNH: LOA BẬT (để nghe người từ camera nói) - MIC TẮT
+        2. Phát hiện "Tỷ Tỷ" → BẬT MIC (để nói "Dạ") → SAU ĐÓ BẬT LOA (để nghe câu hỏi)
+        3. Sau khi xử lý → BẬT MIC (để nói câu trả lời) → SAU ĐÓ BẬT LOA (để tiếp tục nghe)
+        """
         print("\n🎧 Đang lắng nghe qua PC microphone...")
-        print("💡 Trong app CareCam, bật loa (speaker) để PC có thể nghe camera")
+        print("💡 Trong app CareCam, LOA đã được bật tự động để PC có thể nghe camera")
         print("   Nói 'Tỷ Tỷ' + câu hỏi vào camera")
         print("   Nhấn Ctrl+C để dừng\n")
         
         self.running = True
         
+        # Đảm bảo loa đang bật ở trạng thái mặc định
+        if self.carecam_ctrl:
+            print("🔊 Kiểm tra loa đang bật...")
+            self.carecam_ctrl.click_speaker_button()
+            time.sleep(1.0)  # Đợi 1 giây để loa kích hoạt hoàn toàn (tăng từ 0.5s)
+        
         while self.running:
             try:
                 # Listen from default mic (should pick up app audio if speaker is on)
+                print("👂 Đang nghe (loa đang bật)...")
                 text = self.stt.listen_and_recognize()
                 
                 if not text:
@@ -315,8 +355,11 @@ class TyTyFullAutoBot:
                 
                 if detected:
                     if command:
+                        # Wake word + command trong cùng câu
+                        # VD: "Tỷ Tỷ 1+1 bằng mấy?"
                         response = self.process_command(command)
                         
+                        # Nói câu trả lời (tự động: bật mic → nói → bật loa)
                         if self.pipeline.has_virtual_cable():
                             self._say_to_camera(response)
                         else:
@@ -324,16 +367,20 @@ class TyTyFullAutoBot:
                             print("💡 Giữ nút mic trong app để phát qua camera!")
                     
                     elif self.detector.is_just_wake_word(text):
+                        # Chỉ có wake word, đợi câu hỏi tiếp theo
+                        # Nói "Dạ" để xác nhận (tự động: bật mic → nói "Dạ" → bật loa)
                         if self.pipeline.has_virtual_cable():
-                            self._say_to_camera("Dạ, Tỷ Tỷ nghe đây!")
+                            self._say_to_camera("Dạ")
                         else:
                             self._say_local("Dạ, Tỷ Tỷ nghe đây!")
                         
-                        print("👂 Đợi câu hỏi...")
+                        # Sau khi nói "Dạ", loa đã được bật lại → có thể nghe người dùng
+                        print("👂 Loa đã bật, đợi câu hỏi từ camera...")
                         command = self.stt.listen_and_recognize()
                         
                         if command:
                             response = self.process_command(command)
+                            # Nói câu trả lời (tự động: bật mic → nói → bật loa)
                             if self.pipeline.has_virtual_cable():
                                 self._say_to_camera(response)
                             else:
@@ -345,7 +392,7 @@ class TyTyFullAutoBot:
                             else:
                                 self._say_local(msg)
                 else:
-                    print(f"👀 Nghe: '{text}' (không có wake word)")
+                    print(f"👀 Nghe: '{text}' (không có wake word, tiếp tục nghe...)")
                     
             except KeyboardInterrupt:
                 print("\n\n🛑 Đang dừng...")
